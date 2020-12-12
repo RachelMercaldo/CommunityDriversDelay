@@ -1,0 +1,486 @@
+---
+title: "Diagnostic II, Analysis and Results"
+author: "Rachel Mercaldo"
+output:
+  html_document:
+    code_folding: hide
+---
+
+
+```{r packages and setup, echo = FALSE, warning = FALSE, message = FALSE}
+rm(list=ls());
+graphics.off();
+
+
+library(glmnet) #for lasso regularization
+library(caret)
+library(tidyverse)
+library(table1)
+library(ggpubr)
+library(kableExtra)
+
+steps1<-read.csv("diagnostic1.csv")
+steps2<-read.csv("diagnostic2.csv")
+
+#A few additional vars or clean-up:
+steps2$careSeekingDelay <- steps2$cough_duration - steps2$step_time
+steps1$nonTB_time_pre[is.na(steps1$nonTB_time_pre)] <- 0
+steps1$social_time_pre[is.na(steps1$social_time_pre)] <- 0
+steps2$nonTB_time_pre[is.na(steps2$nonTB_time_pre)] <- 0
+steps2$social_time_pre[is.na(steps2$social_time_pre)] <- 0
+```
+
+
+
+#####Table 1: Baseline characteristics of participants in both Diagnostic studies in Kampala, Uganda
+```{r table one}
+#Set up marital status to be similar between Diagnostic I and II:
+steps1$marital1[steps1$marital1=="previously married"] <- "Never married"
+steps1$marital1 <- factor(steps1$marital1, levels = c("Never married","currently married"), labels = c("Not currently married", "Currently married"))
+
+steps2$marital_status <- as.character(steps2$marital_status)
+steps2$marital_status[steps2$marital_status %in% c("Widowed", "Separated/Divorced", "Single/Never Married")]<-"Not currently married"
+steps2$marital_status <- factor(steps2$marital_status, levels = c("Not currently married","Married/Cohabiting"), labels = c("Not currently married", "Currently married"))
+
+
+
+steps1a<-steps1 #create new copies
+steps2a<-steps2
+
+steps2a$marital1 <- steps2$marital_status
+steps2a$tbepisode <- factor(steps2a$first_tb, levels = c("No","Yes"), labels = c("Retreatment","New case"))
+steps2a$income <- as.numeric(steps2a$monthly_income)
+steps1a$income <- as.numeric(steps1a$earn)
+steps1a$hiv_status<-factor(steps1a$hivstatus1, levels = c("Dont Know","Negative","Positive"), labels = c("Don't Know", "Negative", "Positive"))
+tab2<-steps2a[,c("sex", "age", "marital1", "income", "tbepisode","hiv_status")]
+tab1<-steps1a[,c("sex","age","marital1", "income","tbepisode","hiv_status")]
+
+tab1$Study <- as.factor("Diagnostic I")
+tab2$Study <- as.factor("Diagnostic II")
+
+tab<-rbind(tab1,tab2)
+
+label(tab$sex)<-"Sex"
+label(tab$age)<-"Age"
+units(tab$age) <- "Years"
+label(tab$marital1)<-"Marital Status"
+label(tab$income)<-"Income"
+label(tab$tbepisode)<-"TB Episode"
+label(tab$hiv_status)<-"HIV Status"
+
+options(scipen=999)
+table1(~ sex + age + marital1 + income + tbepisode + hiv_status | Study, 
+       data = tab,overall = F)
+```
+
+
+Figure 2
+
+
+```{r plots for figure 2, warning = FALSE, message = FALSE}
+#### BIG PLOTS OF BOTH STUDIES WITH TABLE1 VARS
+strat_plot<-steps1[,c("social_time_pre","nonTB_time_pre", "PartID")]
+strat_plot<-gather(strat_plot,-PartID, key = "variable",value = "time")
+strat_plot$variable <- factor(strat_plot$variable, levels = c("social_time_pre","nonTB_time_pre"), 
+                              labels = c("Social Contact Time","Non-TB Provider Time"))
+strat_plot$Study<-"Diagnostic I"
+
+
+strat_plot2<-steps2[,c("social_time_pre","nonTB_time_pre","id")]
+strat_plot2<-gather(strat_plot2,-id, key = "variable",value = "time")
+strat_plot2$variable <- factor(strat_plot2$variable, 
+                               levels = c("social_time_pre","nonTB_time_pre"),  
+                               labels = c("Social Contact Time","Non-TB Provider Time"))
+strat_plot2$Study <- "Diagnostic II"
+
+
+strat_plot<-rbind(strat_plot[,c("variable","time","Study")],strat_plot2[,c("variable","time","Study")])
+strat_plot$time[is.na(strat_plot$time)]<-0
+
+
+Diag1st<-paste("Median: ",round(as.numeric(summary(steps1$social_time_pre)[3]),2)," days", ",  IQR: ", round(as.numeric(summary(steps1$social_time_pre)[2]),2),"-",round(as.numeric(summary(steps1$social_time_pre)[5]),2), " days", sep = "")
+D1st_tot <- paste("Total: ", round(sum(steps1$social_time_pre),2), " days", sep = "")
+Diag1nt<-paste("Median: ",round(as.numeric(summary(steps1$nonTB_time_pre)[3]),2)," days", ",  IQR: ", round(as.numeric(summary(steps1$nonTB_time_pre)[2]),2),"-",round(as.numeric(summary(steps1$nonTB_time_pre)[5]),2), " days", sep = "")
+D1nt_tot <- paste("Total: ", round(sum(steps1$nonTB_time_pre),2), " days", sep = "")
+Diag2st<-paste("Median: ",round(as.numeric(summary(steps2$social_time_pre)[3]),2)," days", ",  IQR: ", round(as.numeric(summary(steps2$social_time_pre)[2]),2),"-",round(as.numeric(summary(steps2$social_time_pre)[5]),2), " days", sep = "")
+D2st_tot <- paste("Total: ", round(sum(steps2$social_time_pre),2), " days", sep = "")
+Diag2nt<-paste("Median: ",round(as.numeric(summary(steps2$nonTB_time_pre)[3]),2)," days", ",  IQR: ", round(as.numeric(summary(steps2$nonTB_time_pre)[2]),2),"-",round(as.numeric(summary(steps2$nonTB_time_pre)[5]),2), " days", sep = "")
+D2nt_tot <- paste("Total: ", round(sum(steps2$nonTB_time_pre),2), " days", sep = "")
+
+
+
+fig2t1 <- strat_plot[strat_plot$variable %in% c("Social Contact Time", "Non-TB Provider Time"),]
+fig2t1 <- fig2t1[fig2t1$Study == "Diagnostic I",]
+fig2t1$variable <- factor(fig2t1$variable, levels = c("Social Contact Time", "Non-TB Provider Time"), labels = c("Social contacts", "Non-TB providers"))
+
+fig2a<-ggplot(fig2t1, aes(y = time, x = variable, color = "blue")) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_jitter(width = .25) + 
+  theme_classic() + 
+  labs(subtitle = "Diagnostic I",x = "Contact Category", y = "Time (days)") +
+  theme(plot.subtitle = element_text(size = 16),
+        axis.text.x = element_text(size = 16), axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 16), axis.title.y = element_text(size = 16),
+        legend.position = "none") + 
+  annotate("text", x = 1, y = 280, label = D1st_tot, size = 4.5) + 
+  annotate("text", x = 1, y = 260, label = Diag1st, size = 4.5) + 
+  annotate("text", x = 2, y = 320, label = D1nt_tot, size = 4.5) + 
+  annotate("text", x = 2, y = 300, label = Diag1nt, size = 4.5) +
+  annotate("text", x = 1, y = 350, label = " ")
+fig2a<- ggpar(fig2a,
+                palette = "lancet",
+                font.x = c(16), font.y = c(16),
+                font.tickslab = c(16))
+fig2a
+ggsave(filename = "fig2a.jpg",plot = fig2a, device = "jpeg", width = 6, height = 4)
+
+
+
+
+fig2t2 <- strat_plot[strat_plot$variable %in% c("Social Contact Time", "Non-TB Provider Time"),]
+fig2t2 <- fig2t2[fig2t2$Study == "Diagnostic II",]
+fig2t2$variable <- factor(fig2t2$variable, levels = c("Social Contact Time", "Non-TB Provider Time"), labels = c("Social contacts", "Non-TB providers"))
+
+fig2b<-ggplot(fig2t2, aes(y = time, x = variable, color = "blue")) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_jitter(width = .25) + 
+  theme_classic() + 
+  labs(subtitle = "Diagnostic II",x = "Contact Category") +
+  theme(plot.subtitle = element_text(size = 16),
+        axis.text.x = element_text(size = 16), axis.ticks.x = element_blank(),
+        axis.text.y = element_blank(), axis.title.y = element_blank(),
+        legend.position = "none") + 
+  annotate("text", x = 1, y = 280, label = D2st_tot, size = 4.5) + 
+  annotate("text", x = 1, y = 260, label = Diag2st, size = 4.5) + 
+  annotate("text", x = 2, y = 320, label = D2nt_tot, size = 4.5) + 
+  annotate("text", x = 2, y = 300, label = Diag2nt, size = 4.5) +
+  annotate("text", x = 1, y = 350, label = " ")
+fig2b<- ggpar(fig2b,
+                palette = "lancet",
+                font.x = c(16), 
+                font.tickslab = c(16))
+fig2b
+ggsave(filename = "fig2b.jpg",plot = fig2b, device = "jpeg", width = 6, height = 4)
+
+```
+
+
+####Bivariate Analyses:
+
+#####Diagnostic I
+
+
+```{r data setup Steps1, warning = FALSE, message = FALSE, fig.align='center', results = "asis",layout="l-body-outset", tidy = FALSE}
+
+steps1$residence<-factor(steps1$residence, levels = c(1:5),labels = c(1:5))
+steps1$age <- as.numeric(steps1$age)
+steps1$thinktb <- factor(steps1$thinktb, levels = c(1,2), labels = c("Yes","No"))
+steps1$work <- factor(steps1$work, levels = c(1,2), labels = c("Yes","No"))
+steps1$familytb <- factor(steps1$familytb, levels = c(2,1), labels = c("No","Yes"))
+steps1$knowtb <- factor(steps1$knowtb, levels = c(1,2), labels = c("Yes","No"))
+steps1$earn <- as.numeric(steps1$earn)
+steps1$chronic <- factor(steps1$chronic, levels = c(1:4), labels = c("No","Hypertension","Diabetes","Other"), ordered = FALSE)
+steps1$phone <- factor(steps1$phone, levels = c(1,2), labels = c("Yes", "No"))
+steps1$sharephone <- as.factor(steps1$sharephone)
+steps1$smoke <- factor(steps1$smoke, levels = c(1:3), labels = c("Current smoker", "Previous smoker", "Non-smoker"), ordered = F)
+
+
+df<-steps1[,c("age","sex", "marital1", "thinktb", "work","familytb","knowtb","earn","hivstatus1","tbepisode","placediag","chronic","phone","smoke","nonTBfrac")] #pull out all 
+ind <- sapply(df, is.numeric)
+df[ind] <- lapply(df[ind], scale)
+df$careSeekingDelay <- steps1$careSeekingDelay
+df$first_tb_time <- steps1$first_tb_time
+df$between_tb_dx <- steps1$between_tb_dx
+```
+
+```{r SUPPLEMENTAL plots analysis and models of Steps 1, warning = FALSE, message = FALSE, fig.align='center', results = "asis",layout="l-body-outset", tidy = FALSE}
+vars <- c("age","sex", "marital1", "thinktb", "work","familytb","knowtb","earn","hivstatus1","tbepisode","placediag","chronic","phone","smoke","nonTBfrac")
+names(vars) <- c("Age", "Sex", "Marital status", "TB suspected", "Employed", "Family suspected TB", "Knowledge of TB transmission","Income", "HIV status", "TB episode", "Diagnosis location", "Chronic illness", "Owns phone","Smoking", "Non-TB fraction")
+outs <- c("first_tb_time")
+names(outs) <- c("Community Contact delay")
+
+#create a neat vars/names(var) df for later tables from models:
+pretty_dat <- data.frame("Variable" = vars, "Predictor" = names(vars))
+
+#continue with bivariate
+x<-expand.grid(vars = vars, outcomes = outs)
+x$str <- ifelse(x$vars %in% c("age", "earn", "nonTBfrac"), "Numeric", "Factor")
+
+sig.table<-data.frame("Outcome" = NA, "Predictor" = NA, "F_statistic" = NA, "Coefficient" = NA,"P_value" = NA)
+
+
+for(ii in 1:nrow(x)){
+  title <- paste(names(x[ii,2]), "by", names(x[ii,1]), sep = " ")
+  xlab <- names(x[ii,1])
+  ylab <- names(x[ii,2])
+  out <- paste(x[ii,2])
+  by <- paste(x[ii,1])
+  data <- df[,c(out,by)]
+  mode <- x[ii,3]
+  
+  mod1 <- lm(data[,1] ~ data[,2])
+  x1 <- summary(mod1)
+  #p_value1 <- pf(x1$fstatistic[1],x1$fstatistic[2],x1$fstatistic[3],lower.tail=FALSE)
+  
+    sig.table[ii,"Outcome"] <- names(x[ii,2])
+    sig.table[ii,"Predictor"] <- names(x[ii,1])
+    sig.table[ii,"F_statistic"] <- x1$fstatistic[1]
+    sig.table[ii,"Coefficient"] <- x1$coefficients[2]
+    sig.table[ii,"P_value"] <- summary(mod1)$coefficients[2,4]
+    
+    if(mode=="Factor"){
+     p1 <- ggplot(data,aes(x = as.factor(data[,2]), y = data[,1])) + geom_boxplot(outlier.shape = NA) + geom_jitter(width = .15,color = "blue") + labs(title = title, x = xlab, y = ylab) + scale_x_discrete(breaks = waiver()) + theme_classic() 
+    }else{
+      p1 <- ggplot(data,aes(x = data[,2], y = data[,1])) + geom_point(color = "blue") + geom_smooth(method = "loess") + labs(title = title, x = xlab, y = ylab) + theme_classic() 
+    }
+   
+    print(p1)
+}
+
+library(kableExtra)
+tab1<-as.data.frame(sig.table[complete.cases(sig.table),])
+colnames(tab1) <- c("Outcome", "Predictor", "F-statistic", "Coefficient","P-value")
+
+```
+
+
+
+#####Diagnostic II
+
+
+
+```{r little data manip for mods}
+#make certain data types are correct:
+#
+steps2$age<-as.numeric(steps2$age)
+steps2$monthly_income<-as.numeric(steps2$monthly_income)
+steps2$household_income<-as.numeric(steps2$household_income)
+steps2$amount_borrowed<-as.numeric(steps2$amount_borrowed)
+steps2$totalMedical<-as.numeric(steps2$totalMedical)
+steps2$alcohol_time<-as.numeric(steps2$alcohol_time)
+steps2$smoking_time<-as.numeric(steps2$smoking_time)
+steps2$daily_lost<-as.numeric(steps2$daily_lost)
+
+cols = c(104:137,140:154);    
+steps2[,cols] = lapply(steps2[,cols], function(x) as.factor(x));
+
+steps2$hiv_status[steps2$hiv_status == "Don't Know"] <- NA
+steps2$smoking_status <- factor(steps2$smoking_status, ordered = F)
+steps2$hiv_status <- factor(steps2$hiv_status, ordered = F)
+steps2$first_tb <- factor(steps2$first_tb, levels = c("Yes", "No"), labels = c("Yes", "No"))
+
+
+
+steps2 <- steps2[,-1] #remove extra column so numbering is correct:
+
+
+experiences_concerns <- paste("Experienced, or was concerned about, ", c("Night sweats or fever", "Appetite loss or Weight loss", "Coughing blood or chest pain", "Malaise", "Bone or joint pain")) #150:154
+seeks <- paste("Sought Care for",c("Malaise", "Bone or joint pain", "Coughing blood or chest pain","Appetite loss or Weight loss","Night sweats or fever")) #122:126
+evaluations <- paste("Evaluated for TB due to", c("Malaise", "Bone or joint pain", "Coughing blood or chest pain","Appetite loss or Weight loss","Night sweats or fever")) #127:131
+prompts<-paste(c('No Relief from Self-Medication','Frequent Cough','Painful Cough','Bloody Sputum','TV/Radio Advertisement','NA'), "Prompted Care-Seeking") #132:137
+knowledge<-paste("Knows",c("Malaise", "Bone or joint pain", "Coughing blood or chest pain","Appetite loss or Weight loss","Night sweats or fever"),"is Symptom of TB") #115:119
+
+more <- c("Number of symptoms prompting care-seeking","Number of cough symptoms prompting care-seeking","Cough Disrupted Night","Coughed More in Night or Day","Received Cough Medication","Cough Disrupted Daytime Activity","TB was Suspected","Others Expressed Concern about Symptoms", "Bought Supplements","Daily Earnings Lost") #138,139,19,20,23,32,43,45,48,61
+demo <- c("Residence", "DX Location", "Age", "Sex", "HIV Status","Marital Status", "Employment","Monthly Income","First TB","Smoking Status", "Non-TB Fraction") #3,4,6,7,33,11,13,15,17,42,88
+
+df2<- steps2[,c(150:154,122:126,127:131,132:137,115:119,138,139,19,20,23,32,43,45,48,61,3,4,6,7,33,11,13,15,17,42,75,88)]
+vars <- names(steps2[,c(150:154,122:126,127:131,132:137,115:119,138,139,19,20,23,32,43,45,48,61,3,4,6,7,33,11,13,15,17,42,88)])
+names(vars) <- c(experiences_concerns,seeks,evaluations, prompts, knowledge, more, demo)
+outs <- c("first_tb_time","nonTB_time_pre")
+names(outs) <- c("Community Contact delay", "Non-TB provider contribution")
+
+ind <- sapply(df2, is.numeric)
+df2[ind] <- lapply(df2[ind], scale)
+df2$first_tb_time <- steps2$first_tb_time
+df2$nonTB_time_pre<- steps2$nonTB_time_pre
+```
+
+```{r Supplemental symptom predictor plots steps2, warning = FALSE, message = FALSE, fig.align='center', results = "asis",layout="l-body-outset", tidy = FALSE}
+
+x<-expand.grid(vars = vars, outcomes = outs)
+x$str <- ifelse(x$vars %in% c("age", "amount_borrowed","monthly_income","nonTBfrac","daily_lost"), "Numeric", "Factor")
+x$flag <- 0
+x$flag<-ifelse(x$outcomes %in% c("nonTB_time_pre"),ifelse(x$vars == "nonTBfrac",1,0),0)
+x<-x[x$flag == 0,]
+
+sig.table<-data.frame("Outcome" = NA, "Predictor" = NA, "F_statistic" = NA, "Coefficient" = NA,"P_value" = NA)
+
+for(ii in 1:nrow(x)){
+  title <- paste(names(x[ii,2]), "by", names(x[ii,1]), sep = " ")
+  xlab <- names(x[ii,1])
+  ylab <- names(x[ii,2])
+  out <- paste(x[ii,2])
+  by <- paste(x[ii,1])
+  data <- df2[,c(out,by)]
+  mode <- x[ii,3]
+  
+  mod1 <- lm(data[,1] ~ data[,2])
+  x1 <- summary(mod1)
+  #p_value1 <- pf(x1$fstatistic[1],x1$fstatistic[2],x1$fstatistic[3],lower.tail=FALSE)
+  
+    sig.table[ii,"Outcome"] <- names(x[ii,2])
+    sig.table[ii,"Predictor"] <- names(x[ii,1])
+    sig.table[ii,"F_statistic"] <- x1$fstatistic[1]
+    sig.table[ii,"Coefficient"] <- x1$coefficients[2]
+    sig.table[ii,"P_value"] <- summary(mod1)$coefficients[2,4]
+    
+    if(mode=="Factor"){
+      p1 <- ggplot(data,aes(x = as.factor(data[,2]), y = data[,1])) + geom_boxplot() + geom_jitter(width = .15,color = "blue") + labs(title = title, x = xlab, y = ylab) + scale_x_discrete(breaks = waiver()) + theme_classic() 
+    }else{
+      p1 <- ggplot(data,aes(x = data[,2], y = data[,1])) + geom_point(color = "blue") + geom_smooth(method = "loess") + labs(title = title, x = xlab, y = ylab) + theme_classic() 
+    }
+    
+    print(p1)
+}
+
+
+##put together all results for supplemental table 1:
+
+library(kableExtra)
+tab2<-as.data.frame(sig.table[complete.cases(sig.table),])
+colnames(tab2) <- c("Outcome", "Predictor", "F-statistic", "Coefficient", "P-value")
+
+tab1$study <- "Diagnostic I"
+tab2$study <- "Diagnostic II"
+tab<-rbind(tab1,tab2)
+write.csv(tab, file = "tab_bivariate.csv")
+kable(tab[1:5], align = c('l',rep('l',5)), escape = F, row.names = FALSE) %>%
+  kable_styling(full_width = F, font_size = 14)  %>%
+  group_rows("Diagnostic I", 1,nrow(tab1), label_row_css = "background-color: #C0C0C0;color: #110;") %>%
+  group_rows("Diagnostic II", (nrow(tab1)+1),nrow(tab), label_row_css = "background-color: #C0C0C0;color: #110;") %>%
+  add_header_above(c("Supplemental Table 1: Results of bivariate analyses: Diagnostic I and II " = 2, " " = 3), align = "l") %>%
+  row_spec(1:nrow(tab),color = 'black')
+```
+
+
+
+####Multivariate models
+
+
+
+```{r modeling first_tb_time with lasso regularization diag 1}
+
+set.seed(628496)
+
+#Full model with significant vars from bivariate:
+df.small1 <- df[,c("marital1", "tbepisode","familytb","nonTBfrac","first_tb_time")]
+mod1 <- lm(first_tb_time ~ ., data = df.small1)
+summary(mod1)
+
+#set up for LASSO
+df.small<-df[complete.cases(df),] #294 to 255
+df.small<-df.small[,-c(16,18)]
+
+#Calculate baseline RMSE
+base_RMSE <- sqrt(sum((df.small$first_tb_time-mean(df.small$first_tb_time))^2)/nrow(df.small))
+baseline1 <- base_RMSE
+
+x.lasso=data.matrix(dplyr::select(df.small, -c(first_tb_time))) ## x variable must be in the form of a matrix
+y.lasso=df.small$first_tb_time ## outcome variable 
+
+cv <- cv.glmnet(x= x.lasso, y=y.lasso, alpha=1, type.measure="mse",standardize=TRUE, parallel=FALSE)
+
+lasso.coef <- coef(cv, s = "lambda.min") ##extract the coefficients of the cross validation oQutcome
+remaining.vars = rownames(lasso.coef)[which(lasso.coef!=0)]
+lasso.out<-data.frame("Variable" = remaining.vars, "Coefficient" = lasso.coef[which(lasso.coef!=0)])
+lasso.out <- lasso.out[-1,] #kick out intercept 
+lasso.out
+
+predicted <- predict(cv, newx=x.lasso,s="lambda.min") 
+R2fit=R2(predicted,df.small$first_tb_time)
+R2fit
+```
+
+
+
+```{r modeling first_tb_time with lasso regularization diag2}
+myseed <- 628496
+
+df.small <- df2[,c("employment","monthly_income", "tb_suspected","nonTBfrac","Experienced_concerned.Bone.Joint.Pain",
+                      "Experienced_concerned.Weight.Appetite","Experienced_concerned.Malaise","Sought.Bone.Joint.Pain",
+                      "Sought.Cough","Eval.Bone.Joint.Pain","Eval.Fever.Sweat","Cough.Know","Weight.Appetite.Know",
+                      "buy_supplements","cough_med_receipt","cough_disrupt_day","first_tb_time")]
+mod2 <- lm(first_tb_time ~ ., data = df.small)
+summary(mod2)
+
+## Set up for LASSO:
+df.small<-df2[-49] #remove nonTB-time-pre
+df.small<-df.small[complete.cases(df.small),] 
+
+
+#pull out the outcome:
+observed <- df.small$first_tb_time
+
+#Calculate baseline RMSE
+base_RMSE <- sqrt(sum((df.small$first_tb_time-mean(df.small$first_tb_time))^2)/nrow(df.small))
+#print(sprintf('RMSE of baseline model for first_tb_time %f',base_RMSE))
+baseline2<-base_RMSE
+### Lasso
+
+x.lasso=data.matrix(dplyr::select(df.small, -first_tb_time)) ## x variable must be in the form of a matrix
+y.lasso=df.small$first_tb_time ## outcome variable
+
+#fit<- glmnet(x=x.lasso, y=y.lasso, alpha=1, family="gaussian", standardize=TRUE)
+
+cv <- cv.glmnet(y=y.lasso, x=x.lasso, alpha=1, type.measure="mse",standardize=TRUE, parallel=FALSE)
+
+lasso.coef <- coef(cv, s = "lambda.min") ##extract the coefficients of the cross validation oQutcome
+remaining.vars = rownames(lasso.coef)[which(lasso.coef!=0)]
+lasso.out<-data.frame("Variable" = remaining.vars, "Coefficient" = lasso.coef[which(lasso.coef!=0)])
+lasso.out <- lasso.out[-1,] #kick out intercept
+lasso.out
+predicted <- predict(cv, newx=x.lasso,s="lambda.min")
+R2fit=R2(predicted,df.small$first_tb_time)
+R2fit
+plot(cv)
+
+```
+
+
+
+```{r modeling nontb_time with lasso regularization nontb diag2}
+set.seed(628496)
+
+
+df.small <- df2[,c("age", "tb_suspected","first_tb","Experienced_concerned.Cough", "Sought.Bone.Joint.Pain", "Sought.Cough",
+                       "Eval.Bone.Joint.Pain","Eval.Fever.Sweat","Weight.Appetite.Know","Cough.Know","Fever.Sweat.Know",
+                       "buy_supplements", "cough_med_receipt","cough_disrupt_day","nonTB_time_pre")]
+mod3 <- lm(nonTB_time_pre ~ ., data = df.small)
+summary(mod3)
+
+
+
+df.small <- df2[-c(47,48)] #scaled and centered in bivariate, remove first_tb_time and nonTBfrac for this analysis
+df.small$nonTB_time_pre[is.na(df.small$nonTB_time_pre)]<-0 #must set NA to 0, since NA means they didn't visit any non-TB providers
+df.small<-df.small[complete.cases(df.small),] 
+#pull out the outcome:
+observed <- df.small$nonTB_time_pre
+
+#Calculate baseline RMSE
+base_RMSE <- sqrt(sum((df.small$nonTB_time_pre-mean(df.small$nonTB_time_pre))^2)/nrow(df.small))
+
+baseline3 <- base_RMSE
+
+
+### LASSO
+x.lasso=data.matrix(dplyr::select(df.small, -nonTB_time_pre)) ## x variable must be in the form of a matrix
+y.lasso=df.small$nonTB_time_pre ## outcome variable 
+
+fit<- glmnet(x=x.lasso, y=y.lasso, alpha=1, family="gaussian", standardize=TRUE)
+
+cv <- cv.glmnet(x=x.lasso, y=y.lasso, alpha=1, type.measure="mse",standardize=TRUE, parallel=FALSE)
+
+lasso.coef <- coef(cv, s = "lambda.min") ##extract the coefficients of the cross validation oQutcome
+remaining.vars = rownames(lasso.coef)[which(lasso.coef!=0)]
+lasso.out<-data.frame("Variable" = remaining.vars, "Coefficient" = lasso.coef[which(lasso.coef!=0)])
+lasso.out <- lasso.out[-1,] #kick out intercept 
+lasso.out
+
+predicted <- predict(cv, newx=x.lasso,s="lambda.min") 
+R2fit=R2(predicted, df.small$nonTB_time_pre)
+R2fit
+
+plot(cv)
+
+```
+
